@@ -144,6 +144,8 @@ const calcLayerDistances = (lngLat, layer) => {
   const isMarker = layer.geometry.type === "Point";
   // is it a polygon?
   const isPolygon = layer.geometry.type === "Polygon";
+  // is it a multipolygon?
+  const isMultipolygon = layer.geometry.type === "MultiPolygon";
 
   let lines = undefined;
 
@@ -160,11 +162,25 @@ const calcLayerDistances = (lngLat, layer) => {
   }
 
   if (isPolygon) lines = polygonToLine(layer);
-  else lines = layer;
+  else if (isMultipolygon) {
+    let multiline = polygonToLine(layer);
+    let featureClosest = [];
+
+    multiline.features.forEach((feature) => {
+      const nearestPoint = nearestPointOnLine(feature, P);
+      featureClosest.push({
+        feature: feature,
+        dist: nearestPoint.properties.dist,
+      });
+    });
+
+    lines = featureClosest.reduce((prev, current) => {
+      return prev.dist < current.dist ? prev : current;
+    }).feature;
+  } else lines = layer;
 
   const nearestPoint = nearestPointOnLine(lines, P);
   const [lng, lat] = nearestPoint.geometry.coordinates;
-
   let segmentIndex = nearestPoint.properties.index;
   if (segmentIndex + 1 === lines.geometry.coordinates.length) segmentIndex--;
 
@@ -211,7 +227,11 @@ const metersPerPixel = function (latitude, zoomLevel) {
 
 // we got the point we want to snap to (C), but we need to check if a coord of the polygon
 // receives priority over C as the snapping point. Let's check this here
-const checkPrioritiySnapping = (closestLayer, snapOptions, snapVertexPriorityDistance = 1.25) => {
+const checkPrioritiySnapping = (
+  closestLayer,
+  snapOptions,
+  snapVertexPriorityDistance = 1.25
+) => {
   // A and B are the points of the closest segment to P (the marker position we want to snap)
   const A = closestLayer.segment[0];
   const B = closestLayer.segment[1];
@@ -298,7 +318,9 @@ export const snap = (state, e) => {
     }
 
     const isMarker = closestLayer.isMarker;
-    const snapVertexPriorityDistance = state.options.snapOptions ? state.options.snapOptions.snapVertexPriorityDistance : undefined;
+    const snapVertexPriorityDistance = state.options.snapOptions
+      ? state.options.snapOptions.snapVertexPriorityDistance
+      : undefined;
 
     if (!isMarker) {
       snapLatLng = checkPrioritiySnapping(
